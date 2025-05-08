@@ -30,9 +30,9 @@ def create_checkout():
         return jsonify({'error': 'telegram_id is required'}), 400
 
     price_lookup = {
-        'monthly': 'price_xxx1',  # substitua pelos IDs reais dos preços
-        'quarterly': 'price_xxx2',
-        'lifetime': 'price_xxx3'
+        'monthly': 'prod_SH4Ld0hAdny4Bl',  # substitua pelos IDs reais dos preços
+        'quarterly': 'prod_SH4MlajWaRzm4X',
+        'lifetime': 'prod_SH4Pq2xj5WQuyR'
     }
 
     price_id = price_lookup.get(plan)
