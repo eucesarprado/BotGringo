@@ -1,20 +1,17 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, Updater
 import stripe
 import threading
+import os
 
 # --- CONFIG ---
-TELEGRAM_TOKEN = "7860792872:AAHWlHGQRJFehrjRnRf6PmJ2SDMscb2gdN4"
-GROUP_ID = -1002546521987
-STRIPE_SECRET = "your_stripe_secret_key"
+TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+GROUP_ID = int(os.environ['GROUP_ID'])
+STRIPE_SECRET = os.environ['STRIPE_SECRET']
+WEBHOOK_SECRET = os.environ['WEBHOOK_SECRET']
 
 stripe.api_key = STRIPE_SECRET
-
-# Stripe links
-LINK_MENSAL = "https://buy.stripe.com/4gw29d1Pe6AP6nm6oo"
-LINK_TRIMESTRAL = "https://buy.stripe.com/14kbJN65u2kz1325kl"
-LINK_VITALICIO = "https://buy.stripe.com/bIYdRV3Xmf7lbHG6oq"
 
 # --- TELEGRAM BOT ---
 app = Flask(__name__)
@@ -23,11 +20,47 @@ updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
 
+# Cria link dinâmico para assinatura
+@app.route('/checkout')
+def create_checkout():
+    telegram_id = request.args.get('telegram_id')
+    plan = request.args.get('plan', 'monthly')
+
+    if not telegram_id:
+        return jsonify({'error': 'telegram_id is required'}), 400
+
+    price_lookup = {
+        'monthly': 'price_xxx1',  # substitua pelos IDs reais dos preços
+        'quarterly': 'price_xxx2',
+        'lifetime': 'price_xxx3'
+    }
+
+    price_id = price_lookup.get(plan)
+    if not price_id:
+        return jsonify({'error': 'invalid plan'}), 400
+
+    checkout_session = stripe.checkout.Session.create(
+        payment_method_types=['card'],
+        line_items=[{
+            'price': price_id,
+            'quantity': 1,
+        }],
+        mode='payment',
+        success_url='https://t.me/seubot',
+        cancel_url='https://t.me/seubot',
+        metadata={
+            'telegram_id': telegram_id
+        }
+    )
+    return jsonify({'url': checkout_session.url})
+
+
 def start(update: Update, context: CallbackContext):
+    telegram_id = update.effective_user.id
     buttons = [
-        [InlineKeyboardButton("📆 Assinar Mensal (€9.90)", url=LINK_MENSAL)],
-        [InlineKeyboardButton("📅 Trimestral (€19.90)", url=LINK_TRIMESTRAL)],
-        [InlineKeyboardButton("💎 Vitalício (€25.90)", url=LINK_VITALICIO)]
+        [InlineKeyboardButton("📆 Assinar Mensal (€9.90)", url=f"https://seubot.up.railway.app/checkout?telegram_id={telegram_id}&plan=monthly")],
+        [InlineKeyboardButton("📅 Trimestral (€19.90)", url=f"https://seubot.up.railway.app/checkout?telegram_id={telegram_id}&plan=quarterly")],
+        [InlineKeyboardButton("💎 Vitalício (€25.90)", url=f"https://seubot.up.railway.app/checkout?telegram_id={telegram_id}&plan=lifetime")]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
 
@@ -36,7 +69,6 @@ def start(update: Update, context: CallbackContext):
         text="\u2728 Bem-vindo ao nosso VIP!\n\nEscolha um plano abaixo para liberar seu acesso ao grupo privado:",
         reply_markup=reply_markup
     )
-
 
 start_handler = CommandHandler('start', start)
 dispatcher.add_handler(start_handler)
@@ -47,11 +79,10 @@ dispatcher.add_handler(start_handler)
 def stripe_webhook():
     payload = request.data
     sig_header = request.headers.get('Stripe-Signature')
-    endpoint_secret = 'your_stripe_webhook_secret'
 
     try:
         event = stripe.Webhook.construct_event(
-            payload, sig_header, endpoint_secret
+            payload, sig_header, WEBHOOK_SECRET
         )
     except Exception as e:
         return f"Webhook Error: {str(e)}", 400
